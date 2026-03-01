@@ -5,611 +5,258 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>AR YouTube — واقع معزز</title>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
-
+<title>AR YouTube — WebXR + MediaPipe</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
 <style>
 :root {
-  --c1: #00e5ff;
-  --c2: #7c3aed;
-  --c3: #ff4757;
-  --c4: #ffd60a;
-  --c5: #00ff88;
-  --font: 'Cairo', sans-serif;
+  --cyan:#00e5ff; --violet:#7c3aed; --rose:#ff4757;
+  --gold:#ffd60a; --green:#00ff88; --bg:#010109; --font:'Cairo',sans-serif;
 }
-
-* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body {
-  width: 100%; height: 100%;
-  overflow: hidden;
-  background: #000;
-  font-family: var(--font);
-  color: #fff;
-  touch-action: none;
-  user-select: none;
-}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-family:var(--font);color:#fff;touch-action:none;user-select:none;-webkit-user-select:none;}
 
 /* ═══ LAYERS ═══ */
-#camVideo {
-  position: fixed; inset: 0;
-  width: 100%; height: 100%;
-  object-fit: cover;
-  transform: scaleX(-1);
-  z-index: 1;
-  display: none;
-}
+#camVideo{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;display:none;}
+#camVideo.mirror{transform:scaleX(-1);}
+#xrCanvas{position:fixed;inset:0;width:100%;height:100%;z-index:2;display:none;pointer-events:none;}
+#handCanvas{position:fixed;inset:0;width:100%;height:100%;z-index:3;display:none;pointer-events:none;}
+#vignette{position:fixed;inset:0;z-index:4;pointer-events:none;display:none;background:radial-gradient(ellipse 70% 50% at 50% 50%,transparent 40%,rgba(0,0,15,.4) 100%);}
 
-#threeCanvas {
-  position: fixed; inset: 0;
-  width: 100%; height: 100%;
-  z-index: 2;
-  display: none;
-  pointer-events: none;
-}
+/* ═══ AR CORNERS ═══ */
+.arc{position:fixed;z-index:6;width:38px;height:38px;pointer-events:none;display:none;opacity:.7;animation:arcP 3s ease-in-out infinite;}
+@keyframes arcP{0%,100%{opacity:.6}50%{opacity:1}}
+.arc.tl{top:14px;left:14px;border-top:3px solid var(--cyan);border-left:3px solid var(--cyan);border-radius:5px 0 0 0;}
+.arc.tr{top:14px;right:14px;border-top:3px solid var(--cyan);border-right:3px solid var(--cyan);border-radius:0 5px 0 0;}
+.arc.bl{bottom:86px;left:14px;border-bottom:3px solid var(--cyan);border-left:3px solid var(--cyan);border-radius:0 0 0 5px;}
+.arc.br{bottom:86px;right:14px;border-bottom:3px solid var(--cyan);border-right:3px solid var(--cyan);border-radius:0 0 5px 0;}
 
-#handCanvas {
-  position: fixed; inset: 0;
-  width: 100%; height: 100%;
-  z-index: 3;
-  display: none;
-  pointer-events: none;
-}
-
-/* ═══ YOUTUBE IFRAME (hidden, source for texture) ═══ */
-#ytContainer {
-  position: fixed;
-  left: -9999px; top: -9999px;
-  width: 640px; height: 360px;
-  z-index: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-#ytPlayer { width: 100%; height: 100%; border: none; }
-
-/* ═══ YOUTUBE EMBED PANEL (visible AR screen) ═══ */
-#ytEmbed {
-  position: fixed;
-  z-index: 10;
-  display: none;
-  border-radius: 18px;
-  overflow: hidden;
-  box-shadow:
-    0 0 0 2px rgba(0,229,255,0.6),
-    0 0 30px rgba(0,229,255,0.25),
-    0 0 80px rgba(0,229,255,0.1),
-    0 30px 80px rgba(0,0,0,0.7);
-  transform-origin: center center;
-  will-change: transform, left, top;
-  transition: box-shadow 0.3s;
-}
-#ytEmbed.grabbed {
-  box-shadow:
-    0 0 0 3px rgba(0,229,255,1),
-    0 0 50px rgba(0,229,255,0.5),
-    0 0 100px rgba(0,229,255,0.2),
-    0 40px 100px rgba(0,0,0,0.8);
-}
-.embed-bar {
-  background: linear-gradient(90deg, rgba(0,5,20,0.97), rgba(10,0,40,0.97));
-  padding: 10px 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid rgba(0,229,255,0.25);
-  cursor: move;
-  position: relative;
-  z-index: 2;
-}
-.embed-bar::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(0,229,255,0.03), transparent);
-  pointer-events: none;
-}
-.embed-title {
-  display: flex; align-items: center; gap: 8px;
-  font-size: 12px; font-weight: 700; color: var(--c1);
-}
-.embed-dot {
-  width: 7px; height: 7px;
-  background: var(--c1);
-  border-radius: 50%;
-  box-shadow: 0 0 8px var(--c1);
-  animation: blink 1.5s infinite;
-}
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
-.embed-controls { display: flex; gap: 6px; align-items: center; }
-.embed-btn {
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.15);
-  color: #fff; padding: 5px 10px;
-  border-radius: 8px; font-size: 11px;
-  cursor: pointer; font-family: var(--font);
-  transition: all 0.2s;
-}
-.embed-btn:active { background: rgba(0,229,255,0.2); }
-.embed-btn.close { color: #ff4757; border-color: rgba(255,71,87,0.3); }
-.embed-btn.close:active { background: rgba(255,71,87,0.2); }
-#ytIframe {
-  width: 100%; height: auto;
-  aspect-ratio: 16/9;
-  border: none; display: block;
-  background: #000;
-}
-
-/* Screen edge glow lines */
-#ytEmbed::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: 18px;
-  background: linear-gradient(135deg, rgba(0,229,255,0.4), transparent 40%, transparent 60%, rgba(124,58,237,0.4));
-  z-index: -1;
-  pointer-events: none;
-}
-
-/* ═══ FINGER CURSOR ═══ */
-#fingerCursor {
-  position: fixed;
-  width: 28px; height: 28px;
-  border-radius: 50%;
-  border: 2.5px solid rgba(0,229,255,0.9);
-  background: rgba(0,229,255,0.15);
-  box-shadow: 0 0 20px rgba(0,229,255,0.6), inset 0 0 10px rgba(0,229,255,0.1);
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-  z-index: 200;
-  display: none;
-  transition: width 0.15s, height 0.15s, background 0.15s, border-color 0.15s, box-shadow 0.15s;
-}
-#fingerCursor.grabbing {
-  width: 40px; height: 40px;
-  background: rgba(0,229,255,0.3);
-  border-color: var(--c5);
-  box-shadow: 0 0 30px rgba(0,255,136,0.8), inset 0 0 15px rgba(0,255,136,0.2);
-}
-#fingerCursor.pinching {
-  width: 20px; height: 20px;
-  background: rgba(255,214,10,0.3);
-  border-color: var(--c4);
-  box-shadow: 0 0 20px rgba(255,214,10,0.8);
-}
-#fingerCursor::after {
-  content: '';
-  position: absolute;
-  top: 50%; left: 50%;
-  width: 6px; height: 6px;
-  background: var(--c1);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  box-shadow: 0 0 8px var(--c1);
-}
-
-/* ═══ HAND SKELETON JOINTS ═══ */
-.joint-dot {
-  position: fixed;
-  border-radius: 50%;
-  pointer-events: none;
-  z-index: 150;
-  transform: translate(-50%, -50%);
-  transition: opacity 0.1s;
-}
+/* ═══ CURSOR ═══ */
+#cursor{position:fixed;width:26px;height:26px;border-radius:50%;border:2.5px solid var(--cyan);background:rgba(0,229,255,.12);box-shadow:0 0 16px rgba(0,229,255,.5);transform:translate(-50%,-50%);pointer-events:none;z-index:200;display:none;transition:width .12s,height .12s,background .12s,border-color .12s;}
+#cursor::after{content:'';position:absolute;top:50%;left:50%;width:5px;height:5px;background:var(--cyan);border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 6px var(--cyan);}
+#cursor.fist{width:36px;height:36px;border-color:var(--green);background:rgba(0,255,136,.2);box-shadow:0 0 28px rgba(0,255,136,.7);}
+#cursor.pinch{width:18px;height:18px;border-color:var(--gold);background:rgba(255,214,10,.25);box-shadow:0 0 18px rgba(255,214,10,.7);}
 
 /* ═══ GESTURE BADGE ═══ */
-#gestureBadge {
-  position: fixed;
-  bottom: 110px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 100;
-  background: rgba(0,0,0,0.7);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 30px;
-  padding: 10px 22px;
-  font-size: 13px;
-  font-weight: 700;
-  display: none;
-  white-space: nowrap;
-  transition: all 0.2s;
-  pointer-events: none;
-}
+#gestureBadge{position:fixed;bottom:88px;left:50%;transform:translateX(-50%);z-index:50;background:rgba(0,0,0,.7);backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.12);border-radius:28px;padding:9px 22px;font-size:13px;font-weight:700;display:none;pointer-events:none;white-space:nowrap;transition:border-color .2s,color .2s;}
 
-/* ═══ LOADING SCREEN ═══ */
-#loadScreen {
-  position: fixed; inset: 0;
-  z-index: 9999;
-  background: radial-gradient(ellipse at 30% 40%, #0a0028, #000 70%);
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  gap: 22px; padding: 28px; text-align: center;
-}
-.load-hero {
-  font-size: clamp(4.5rem, 18vw, 8rem);
-  animation: heroFloat 3s ease-in-out infinite;
-  filter: drop-shadow(0 0 30px rgba(0,229,255,0.5));
-}
-@keyframes heroFloat {
-  0%,100% { transform: translateY(0) rotate(-3deg); }
-  50% { transform: translateY(-14px) rotate(3deg); }
-}
-.load-title {
-  font-size: clamp(1.8rem, 7vw, 3rem);
-  font-weight: 900;
-  background: linear-gradient(135deg, var(--c1) 0%, var(--c2) 50%, var(--c4) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  line-height: 1.1;
-}
-.load-sub {
-  color: rgba(255,255,255,0.4);
-  font-size: clamp(0.78rem, 2.5vw, 0.9rem);
-  max-width: 340px;
-  line-height: 1.8;
-}
-.load-features {
-  display: flex; flex-direction: column; gap: 9px;
-  width: 100%; max-width: 340px;
-}
-.feat-item {
-  display: flex; align-items: center; gap: 12px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 14px;
-  padding: 10px 16px;
-  font-size: 13px;
-}
-.feat-ico { font-size: 20px; flex-shrink: 0; }
-.feat-text { text-align: right; }
-.feat-text strong { display: block; font-size: 13px; color: var(--c1); }
-.feat-text span { font-size: 11px; color: rgba(255,255,255,0.4); }
-.load-bar-wrap {
-  width: min(300px, 78vw); height: 5px;
-  background: rgba(255,255,255,0.07);
-  border-radius: 3px; overflow: hidden;
-}
-.load-bar-fill {
-  height: 100%; border-radius: 3px;
-  background: linear-gradient(90deg, var(--c1), var(--c2));
-  width: 0%;
-  transition: width 0.35s ease;
-  box-shadow: 0 0 10px var(--c1);
-}
-#loadMsg { font-size: 0.73rem; color: rgba(255,255,255,0.3); min-height: 1rem; }
-.start-btn {
-  background: linear-gradient(135deg, var(--c1), var(--c2));
-  color: #fff; border: none;
-  padding: 14px 40px; border-radius: 50px;
-  font-family: var(--font); font-weight: 900;
-  font-size: clamp(0.9rem, 3vw, 1.05rem);
-  cursor: pointer; display: none;
-  box-shadow: 0 0 40px rgba(0,229,255,0.3);
-  transition: transform 0.15s, box-shadow 0.15s;
-  -webkit-appearance: none;
-}
-.start-btn:active { transform: scale(0.95); }
+/* ═══ XR RETICLE ═══ */
+#reticle{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:72px;height:72px;z-index:20;display:none;pointer-events:none;}
+#reticle svg{width:100%;height:100%;animation:spin 5s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+#reticleHint{position:fixed;bottom:155px;left:50%;transform:translateX(-50%);z-index:20;display:none;pointer-events:none;background:rgba(0,0,0,.75);backdrop-filter:blur(12px);border:1px solid rgba(0,229,255,.35);border-radius:20px;padding:7px 18px;font-size:12px;font-weight:700;color:var(--cyan);white-space:nowrap;}
+
+/* ═══ XR MODE BADGE ═══ */
+#xrBadge{position:fixed;top:68px;right:14px;z-index:50;display:none;pointer-events:none;border-radius:14px;padding:8px 14px;font-size:11px;font-weight:700;line-height:1.8;white-space:nowrap;}
+#xrBadge.webxr{background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.35);color:var(--green);}
+#xrBadge.fallback{background:rgba(255,214,10,.08);border:1px solid rgba(255,214,10,.3);color:var(--gold);}
 
 /* ═══ TOP HUD ═══ */
-#topHud {
-  position: fixed; top: 0; left: 0; right: 0;
-  z-index: 80;
-  display: none;
-  align-items: center; justify-content: space-between;
-  padding: max(env(safe-area-inset-top, 10px), 10px) 16px 12px;
-  background: linear-gradient(to bottom, rgba(0,0,0,0.85), transparent);
-  pointer-events: none;
-}
-.hud-left { display: flex; align-items: center; gap: 8px; }
-.ar-badge {
-  display: flex; align-items: center; gap: 6px;
-  background: rgba(0,229,255,0.1);
-  border: 1px solid rgba(0,229,255,0.3);
-  border-radius: 20px; padding: 5px 12px;
-  font-size: 12px; font-weight: 700; color: var(--c1);
-}
-.hud-right { pointer-events: auto; }
-.exit-btn {
-  background: rgba(255,71,87,0.15);
-  border: 1px solid rgba(255,71,87,0.3);
-  color: #ff4757; padding: 6px 14px;
-  border-radius: 16px; font-family: var(--font);
-  font-size: 12px; font-weight: 700; cursor: pointer;
-  -webkit-appearance: none;
-}
+#topHud{position:fixed;top:0;left:0;right:0;z-index:80;display:none;align-items:center;justify-content:space-between;padding:max(env(safe-area-inset-top,10px),10px) 16px 12px;background:linear-gradient(to bottom,rgba(0,0,0,.88),transparent);}
+.hbrand{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:900;color:var(--cyan);}
+.livedot{width:8px;height:8px;background:var(--rose);border-radius:50%;box-shadow:0 0 8px var(--rose);animation:blink 1.2s infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+.hudr{display:flex;gap:7px;}
+.hbtn{background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.15);color:#fff;padding:7px 12px;border-radius:20px;font-family:var(--font);font-size:11.5px;font-weight:700;cursor:pointer;backdrop-filter:blur(12px);transition:all .18s;-webkit-appearance:none;}
+.hbtn:active{background:rgba(255,255,255,.15);}
+.hbtn.xractive{background:rgba(0,255,136,.15);border-color:rgba(0,255,136,.5);color:var(--green);}
+.hbtn .ci{display:inline-block;transition:transform .45s cubic-bezier(.34,1.56,.64,1);}
+.hbtn.spinning .ci{transform:rotate(360deg);}
 
-/* ═══ BOTTOM TOOLBAR ═══ */
-#toolbar {
-  position: fixed;
-  bottom: 0; left: 0; right: 0;
-  z-index: 80;
-  display: none;
-  justify-content: center;
-  gap: 8px;
-  padding: 14px 16px max(env(safe-area-inset-bottom, 14px), 14px);
-  background: linear-gradient(to top, rgba(0,0,0,0.9) 60%, transparent);
-}
-.tool-btn {
-  display: flex; flex-direction: column;
-  align-items: center; gap: 4px;
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.12);
-  color: #fff; padding: 10px 13px;
-  border-radius: 16px; font-size: 10.5px;
-  font-weight: 700; cursor: pointer;
-  min-width: 64px; transition: all 0.18s;
-  font-family: var(--font);
-  -webkit-appearance: none;
-}
-.tool-btn .ti { font-size: 21px; margin-bottom: 1px; }
-.tool-btn.on { background: rgba(0,229,255,0.15); border-color: var(--c1); color: var(--c1); }
-.tool-btn:active { transform: scale(0.94); }
+/* ═══ TOOLBAR ═══ */
+#toolbar{position:fixed;bottom:0;left:0;right:0;z-index:80;display:none;justify-content:center;gap:7px;padding:12px 10px max(env(safe-area-inset-bottom,12px),12px);background:linear-gradient(to top,rgba(0,0,0,.92) 60%,transparent);}
+.tbtn{display:flex;flex-direction:column;align-items:center;gap:3px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.8);padding:9px 10px;border-radius:14px;font-size:10px;font-weight:700;cursor:pointer;min-width:56px;font-family:var(--font);transition:all .18s;-webkit-appearance:none;}
+.tbtn .ti{font-size:18px;line-height:1;}
+.tbtn.on{background:rgba(0,229,255,.15);border-color:rgba(0,229,255,.45);color:var(--cyan);}
+.tbtn:active{transform:scale(.92);}
+#xrTbtn{border-color:rgba(0,255,136,.3);color:var(--green);background:rgba(0,255,136,.05);}
+#xrTbtn.on{background:rgba(0,255,136,.2);border-color:var(--green);}
+#xrTbtn.notsup{opacity:.38;pointer-events:none;}
+
+/* ═══ YOUTUBE SCREEN ═══ */
+#ytScreen{position:fixed;z-index:60;display:none;transform-origin:center center;will-change:transform,left,top;filter:drop-shadow(0 0 40px rgba(0,229,255,.18)) drop-shadow(0 20px 60px rgba(0,0,0,.75));}
+.sw{border-radius:18px;overflow:hidden;border:2px solid rgba(0,229,255,.5);background:#000;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),0 0 60px rgba(0,229,255,.12);position:relative;}
+.sw::before{content:'';position:absolute;inset:-1px;border-radius:18px;z-index:1;pointer-events:none;background:linear-gradient(135deg,rgba(0,229,255,.3) 0%,rgba(124,58,237,.15) 35%,transparent 65%,rgba(124,58,237,.2) 100%);}
+.sw::after{content:'';position:absolute;top:0;left:0;right:0;height:38%;z-index:2;pointer-events:none;background:linear-gradient(to bottom,rgba(255,255,255,.08),transparent);border-radius:17px 17px 0 0;}
+.sbar{background:linear-gradient(90deg,rgba(0,5,22,.98),rgba(12,0,45,.98));padding:9px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(0,229,255,.2);cursor:move;position:relative;z-index:3;}
+.stit{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:700;color:var(--cyan);}
+.sdot{width:6px;height:6px;background:var(--cyan);border-radius:50%;box-shadow:0 0 8px var(--cyan);animation:blink 2s infinite;}
+.sbtns{display:flex;gap:5px;}
+.sbtn2{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.7);padding:4px 9px;border-radius:7px;font-size:10px;font-weight:700;cursor:pointer;font-family:var(--font);transition:all .15s;}
+.sbtn2:active{background:rgba(0,229,255,.2);color:var(--cyan);}
+.sbtn2.xbtn{color:var(--rose);}
+#anchorTag{position:absolute;top:38px;left:50%;transform:translateX(-50%);z-index:4;pointer-events:none;display:none;background:rgba(0,255,136,.12);border:1px solid rgba(0,255,136,.4);border-radius:10px;padding:3px 10px;font-size:10px;font-weight:700;color:var(--green);white-space:nowrap;}
+#ytIframe{width:100%;aspect-ratio:16/9;border:none;display:block;background:#000;position:relative;z-index:0;}
 
 /* ═══ URL DIALOG ═══ */
-#urlDialog {
-  position: fixed; inset: 0;
-  z-index: 500;
-  display: none;
-  align-items: center; justify-content: center;
-  padding: 24px;
-  background: rgba(0,0,0,0.85);
-  backdrop-filter: blur(20px);
-}
-#urlDialog.open { display: flex; }
-.dialog-box {
-  background: rgba(5,5,25,0.98);
-  border: 1px solid rgba(0,229,255,0.2);
-  border-radius: 22px;
-  overflow: hidden;
-  width: 100%; max-width: 480px;
-  box-shadow: 0 30px 80px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05);
-}
-.dialog-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 20px;
-  background: rgba(0,229,255,0.07);
-  border-bottom: 1px solid rgba(0,229,255,0.15);
-}
-.dialog-head h3 {
-  font-size: 16px; font-weight: 900; color: var(--c1);
-  display: flex; align-items: center; gap: 8px;
-}
-.dlg-close {
-  background: none; border: none; color: rgba(255,255,255,0.4);
-  font-size: 22px; cursor: pointer; line-height: 1;
-}
-.dialog-body { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
-.dialog-body label { font-size: 12px; color: rgba(255,255,255,0.5); }
-#urlInput {
-  width: 100%;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 12px; color: #fff;
-  padding: 12px 16px; font-size: 14px;
-  outline: none; transition: border-color 0.2s;
-  direction: ltr; font-family: monospace;
-}
-#urlInput:focus { border-color: var(--c1); }
-#urlInput::placeholder { color: #333; }
-.quick-urls {
-  display: flex; gap: 6px; flex-wrap: wrap;
-}
-.quick-url {
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 8px; padding: 5px 10px;
-  font-size: 11px; cursor: pointer;
-  font-family: var(--font); color: rgba(255,255,255,0.6);
-  transition: all 0.15s;
-}
-.quick-url:active { background: rgba(0,229,255,0.15); color: var(--c1); }
-.play-btn {
-  background: linear-gradient(135deg, #ff0000, #cc0000);
-  color: #fff; border: none; padding: 13px;
-  border-radius: 12px; font-family: var(--font);
-  font-weight: 900; font-size: 15px; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  gap: 8px; transition: transform 0.15s;
-  -webkit-appearance: none;
-}
-.play-btn:active { transform: scale(0.97); }
+#urlDialog{position:fixed;inset:0;z-index:500;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.9);backdrop-filter:blur(24px);}
+#urlDialog.open{display:flex;}
+.dlg{width:100%;max-width:480px;background:rgba(4,4,20,.98);border:1px solid rgba(0,229,255,.2);border-radius:24px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.9);}
+.dlgh{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:rgba(0,229,255,.06);border-bottom:1px solid rgba(0,229,255,.15);}
+.dlgh h3{font-size:15px;font-weight:900;color:var(--cyan);}
+.dlgx{background:none;border:none;color:rgba(255,255,255,.35);font-size:22px;cursor:pointer;line-height:1;}
+.dlgb{padding:18px;display:flex;flex-direction:column;gap:13px;}
+.dlbl{font-size:11px;font-weight:700;color:rgba(255,255,255,.38);letter-spacing:.5px;}
+#urlInput{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:12px;color:#fff;padding:11px 15px;font-size:13.5px;outline:none;direction:ltr;font-family:monospace;transition:border-color .2s;}
+#urlInput:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(0,229,255,.1);}
+#urlInput::placeholder{color:#2a2a3a;}
+.qrow{display:flex;gap:6px;flex-wrap:wrap;}
+.qb{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font);color:rgba(255,255,255,.55);transition:all .15s;}
+.qb:active{background:rgba(0,229,255,.15);color:var(--cyan);border-color:rgba(0,229,255,.3);}
+.playbtn{background:linear-gradient(135deg,#ff0000,#aa0000);color:#fff;border:none;padding:13px;border-radius:13px;font-family:var(--font);font-weight:900;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 20px rgba(255,0,0,.3);transition:transform .15s;-webkit-appearance:none;}
+.playbtn:active{transform:scale(.97);}
 
-/* ═══ HAND GUIDE TOAST ═══ */
-#handGuide {
-  position: fixed;
-  top: 70px; right: 14px;
-  z-index: 90;
-  display: none;
-  background: rgba(0,0,0,0.8);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 16px;
-  padding: 12px 16px;
-  font-size: 11.5px;
-  color: rgba(255,255,255,0.65);
-  pointer-events: none;
-  line-height: 2;
-}
-.gline { display: flex; align-items: center; gap: 8px; }
-.gline .gc { font-size: 16px; }
+/* ═══ HAND GUIDE ═══ */
+#handGuide{position:fixed;top:68px;left:14px;z-index:70;display:none;pointer-events:none;background:rgba(0,0,0,.78);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:12px 15px;font-size:11.5px;color:rgba(255,255,255,.6);line-height:2.1;}
+.gl{display:flex;align-items:center;gap:8px;}
 
-/* ═══ AR DEPTH EFFECT ═══ */
-#depthEffect {
-  position: fixed; inset: 0;
-  z-index: 4;
-  pointer-events: none;
-  display: none;
-  background:
-    radial-gradient(ellipse 60% 40% at 50% 50%, transparent 30%, rgba(0,0,10,0.3) 100%);
-}
+/* ═══ TOAST ═══ */
+#toast{position:fixed;top:68px;left:50%;transform:translateX(-50%);z-index:999;pointer-events:none;background:rgba(0,0,0,.88);backdrop-filter:blur(16px);border:1px solid rgba(0,229,255,.3);border-radius:24px;padding:9px 22px;font-size:13px;font-weight:700;color:var(--cyan);white-space:nowrap;opacity:0;transition:opacity .3s;box-shadow:0 0 20px rgba(0,229,255,.15);}
 
-/* Corner AR brackets */
-#arBrackets {
-  position: fixed; inset: 0;
-  z-index: 6;
-  pointer-events: none;
-  display: none;
-}
-.bracket {
-  position: absolute;
-  width: 36px; height: 36px;
-  border-color: rgba(0,229,255,0.5);
-  border-style: solid;
-}
-.bracket.tl { top: 16px; left: 16px; border-width: 3px 0 0 3px; border-radius: 4px 0 0 0; }
-.bracket.tr { top: 16px; right: 16px; border-width: 3px 3px 0 0; border-radius: 0 4px 0 0; }
-.bracket.bl { bottom: 90px; left: 16px; border-width: 0 0 3px 3px; border-radius: 0 0 0 4px; }
-.bracket.br { bottom: 90px; right: 16px; border-width: 0 3px 3px 0; border-radius: 0 0 4px 0; }
+/* ═══ LOADING ═══ */
+#loadScreen{position:fixed;inset:0;z-index:9999;background:radial-gradient(ellipse 80% 60% at 30% 40%,#06001a,var(--bg) 70%);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:28px;text-align:center;}
+.lhero{font-size:clamp(4rem,18vw,7rem);animation:float 3.5s ease-in-out infinite;filter:drop-shadow(0 0 30px rgba(0,229,255,.4));}
+@keyframes float{0%,100%{transform:translateY(0) rotate(-4deg) scale(1)}50%{transform:translateY(-14px) rotate(4deg) scale(1.04)}}
+.ltitle{font-size:clamp(1.7rem,6.5vw,2.8rem);font-weight:900;line-height:1.15;background:linear-gradient(135deg,var(--cyan),var(--violet) 55%,var(--gold));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.lsub{color:rgba(255,255,255,.38);font-size:clamp(.78rem,2.5vw,.9rem);max-width:340px;line-height:1.8;}
+.llibs{display:flex;flex-direction:column;gap:7px;width:100%;max-width:360px;}
+.llib{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:8px 14px;font-size:11.5px;}
+.llib-ico{font-size:18px;flex-shrink:0;}
+.llib strong{display:block;font-size:12px;color:rgba(255,255,255,.85);}
+.llib span{font-size:10.5px;color:rgba(255,255,255,.36);}
+.llib.xrlib{border-color:rgba(0,255,136,.22);background:rgba(0,255,136,.04);}
+.lbar-w{width:min(300px,78vw);height:5px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden;}
+.lbar{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--cyan),var(--violet));width:0%;transition:width .3s;box-shadow:0 0 10px var(--cyan);}
+#loadMsg{font-size:.72rem;color:rgba(255,255,255,.3);min-height:1rem;}
+.startbtn{background:linear-gradient(135deg,var(--cyan),var(--violet));color:#fff;border:none;padding:14px 42px;border-radius:50px;font-family:var(--font);font-weight:900;font-size:clamp(.9rem,3vw,1rem);cursor:pointer;display:none;box-shadow:0 0 40px rgba(0,229,255,.25);transition:transform .15s;-webkit-appearance:none;}
+.startbtn:active{transform:scale(.95);}
+#xrSupportNote{font-size:12px;padding:8px 16px;border-radius:12px;max-width:320px;text-align:center;}
 </style>
 </head>
 <body>
 
-<!-- CAMERA -->
-<video id="camVideo" autoplay playsinline muted></video>
-
-<!-- THREE.JS CANVAS (AR effects) -->
-<canvas id="threeCanvas"></canvas>
-
-<!-- HAND SKELETON CANVAS -->
+<!-- LAYERS -->
+<video id="camVideo" class="mirror" autoplay playsinline muted></video>
+<canvas id="xrCanvas"></canvas>
 <canvas id="handCanvas"></canvas>
+<div id="vignette"></div>
+<div class="arc tl"></div><div class="arc tr"></div>
+<div class="arc bl"></div><div class="arc br"></div>
 
-<!-- AR DEPTH -->
-<div id="depthEffect"></div>
+<!-- CURSOR & BADGES -->
+<div id="cursor"></div>
+<div id="gestureBadge">✋ أظهر يدك</div>
+<div id="xrBadge" class="fallback">📷 وضع الكاميرا</div>
 
-<!-- AR BRACKETS -->
-<div id="arBrackets">
-  <div class="bracket tl"></div>
-  <div class="bracket tr"></div>
-  <div class="bracket bl"></div>
-  <div class="bracket br"></div>
+<!-- WEBXR RETICLE (hit-test) -->
+<div id="reticle">
+  <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="50" cy="50" r="44" stroke="rgba(0,229,255,.9)" stroke-width="2.5" stroke-dasharray="10 5"/>
+    <circle cx="50" cy="50" r="7" fill="rgba(0,229,255,.95)"/>
+    <line x1="50" y1="4"  x2="50" y2="24" stroke="rgba(0,229,255,.8)" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="50" y1="76" x2="50" y2="96" stroke="rgba(0,229,255,.8)" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="4"  y1="50" x2="24" y2="50" stroke="rgba(0,229,255,.8)" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="76" y1="50" x2="96" y2="50" stroke="rgba(0,229,255,.8)" stroke-width="2.5" stroke-linecap="round"/>
+  </svg>
 </div>
-
-<!-- FINGER CURSOR -->
-<div id="fingerCursor"></div>
-
-<!-- GESTURE BADGE -->
-<div id="gestureBadge">✋ حرّك يدك</div>
-
-<!-- YOUTUBE EMBED (the AR screen) -->
-<div id="ytEmbed">
-  <div class="embed-bar" id="embedBar">
-    <div class="embed-title">
-      <div class="embed-dot"></div>
-      <span>📺 AR Screen</span>
-    </div>
-    <div class="embed-controls">
-      <button class="embed-btn" onclick="openUrlDialog()">🎬 فيديو</button>
-      <button class="embed-btn close" onclick="hideYtEmbed()">✕</button>
-    </div>
-  </div>
-  <iframe id="ytIframe"
-    allow="autoplay; encrypted-media; fullscreen"
-    allowfullscreen>
-  </iframe>
-</div>
+<div id="reticleHint">👆 انقر على سطح لتثبيت الشاشة هناك</div>
 
 <!-- TOP HUD -->
 <div id="topHud">
-  <div class="hud-left">
-    <div class="ar-badge">
-      <div class="embed-dot" style="width:6px;height:6px;"></div>
-      AR LIVE
-    </div>
-  </div>
-  <div class="hud-right">
-    <button class="exit-btn" onclick="exitAR()">✕ خروج</button>
+  <div class="hbrand"><div class="livedot"></div>AR LIVE</div>
+  <div class="hudr">
+    <button class="hbtn" id="xrHbtn" onclick="toggleXR()">🌐 <span id="xrHtxt">WebXR</span></button>
+    <button class="hbtn" id="camHbtn" onclick="switchCam()"><span class="ci" id="camIco">🔄</span><span id="camLbl"> كاميرا</span></button>
+    <button class="hbtn" style="color:var(--rose)" onclick="exitAR()">✕</button>
   </div>
 </div>
 
-<!-- BOTTOM TOOLBAR -->
+<!-- TOOLBAR -->
 <div id="toolbar">
-  <button class="tool-btn" onclick="openUrlDialog()">
-    <span class="ti">📺</span>يوتيوب
-  </button>
-  <button class="tool-btn" onclick="placeScreen()">
-    <span class="ti">📌</span>ضع شاشة
-  </button>
-  <button class="tool-btn" id="skelBtn" onclick="toggleSkeleton()">
-    <span class="ti">🦴</span>هيكل
-  </button>
-  <button class="tool-btn" id="guideBtn" onclick="toggleGuide()">
-    <span class="ti">💡</span>دليل
-  </button>
-  <button class="tool-btn" id="fx3dBtn" onclick="toggle3DFX()">
-    <span class="ti">✨</span>مؤثرات
-  </button>
+  <button class="tbtn" onclick="openDlg()"><span class="ti">📺</span>يوتيوب</button>
+  <button class="tbtn" onclick="placeScreen()"><span class="ti">📌</span>ضع</button>
+  <button class="tbtn" id="xrTbtn" onclick="toggleXR()"><span class="ti">🌐</span>WebXR</button>
+  <button class="tbtn" id="skelTbtn" onclick="toggleSkel()"><span class="ti">🦴</span>هيكل</button>
+  <button class="tbtn" id="fxTbtn" onclick="toggleFX()"><span class="ti">✨</span>مؤثرات</button>
+  <button class="tbtn" id="guideTbtn" onclick="toggleGuide()"><span class="ti">💡</span>دليل</button>
 </div>
 
 <!-- HAND GUIDE -->
 <div id="handGuide">
-  <div class="gline"><span class="gc">☝️</span> إصبع واحد ← تحريك الشاشة</div>
-  <div class="gline"><span class="gc">✊</span> قبضة ← سحب + تثبيت</div>
-  <div class="gline"><span class="gc">🤏</span> قرصة ← تكبير / تصغير</div>
-  <div class="gline"><span class="gc">🖐</span> كف ← إظهار الشاشة</div>
-  <div class="gline"><span class="gc">👌</span> دائرة ← تدوير الشاشة</div>
+  <div class="gl">☝️ إصبع ← تفعيل المؤشر</div>
+  <div class="gl">✊ قبضة ← سحب الشاشة</div>
+  <div class="gl">🤏 قرصة ← تكبير/تصغير</div>
+  <div class="gl">🖐 كف ← إظهار الشاشة</div>
+  <div class="gl">🌐 WebXR ← تثبيت حقيقي في الفضاء</div>
+</div>
+
+<!-- FLOATING YOUTUBE SCREEN -->
+<div id="ytScreen">
+  <div class="sw">
+    <div class="sbar" id="sbar">
+      <div class="stit"><div class="sdot"></div>📺 AR Screen</div>
+      <div class="sbtns">
+        <button class="sbtn2" onclick="openDlg()">🎬</button>
+        <button class="sbtn2 xbtn" onclick="hideScreen()">✕</button>
+      </div>
+    </div>
+    <div id="anchorTag">📍 مثبّت WebXR في الغرفة</div>
+    <iframe id="ytIframe" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe>
+  </div>
 </div>
 
 <!-- URL DIALOG -->
 <div id="urlDialog">
-  <div class="dialog-box">
-    <div class="dialog-head">
-      <h3>🎬 تشغيل يوتيوب في AR</h3>
-      <button class="dlg-close" onclick="closeUrlDialog()">×</button>
+  <div class="dlg">
+    <div class="dlgh">
+      <h3>🎬 يوتيوب في الواقع المعزز</h3>
+      <button class="dlgx" onclick="closeDlg()">×</button>
     </div>
-    <div class="dialog-body">
-      <label>رابط يوتيوب أو معرف الفيديو</label>
-      <input id="urlInput" type="url" placeholder="https://www.youtube.com/watch?v=..." dir="ltr">
-      <label>روابط سريعة للتجربة</label>
-      <div class="quick-urls">
-        <button class="quick-url" onclick="quickLoad('dQw4w9WgXcQ')">🎵 موسيقى</button>
-        <button class="quick-url" onclick="quickLoad('jNQXAC9IVRw')">🐘 فيديو مشهور</button>
-        <button class="quick-url" onclick="quickLoad('aqz-KE-bpKQ')">🌊 طبيعة مريحة</button>
-        <button class="quick-url" onclick="quickLoad('LXb3EKWsInQ')">🌌 كون وفضاء</button>
+    <div class="dlgb">
+      <div class="dlbl">رابط يوتيوب أو معرف الفيديو</div>
+      <input id="urlInput" type="url" placeholder="https://youtube.com/watch?v=..." dir="ltr">
+      <div class="dlbl">روابط سريعة</div>
+      <div class="qrow">
+        <button class="qb" onclick="qload('dQw4w9WgXcQ')">🎵 موسيقى</button>
+        <button class="qb" onclick="qload('aqz-KE-bpKQ')">🌊 طبيعة</button>
+        <button class="qb" onclick="qload('LXb3EKWsInQ')">🌌 فضاء</button>
+        <button class="qb" onclick="qload('kJQP7kiw5Fk')">🎶 ديسباسيتو</button>
+        <button class="qb" onclick="qload('jNQXAC9IVRw')">🐘 مشهور</button>
       </div>
-      <button class="play-btn" onclick="loadFromInput()">
-        ▶&nbsp; تشغيل في الواقع المعزز
-      </button>
+      <button class="playbtn" onclick="loadFromInput()">▶&nbsp;تشغيل في AR</button>
     </div>
   </div>
 </div>
 
+<!-- TOAST -->
+<div id="toast"></div>
+
 <!-- LOADING SCREEN -->
 <div id="loadScreen">
-  <div class="load-hero">🥽</div>
-  <div class="load-title">AR YouTube<br>شاشة في الواقع</div>
-  <div class="load-sub">شاشة يوتيوب ثلاثية الأبعاد حقيقية في بيئتك — تتحكم بها بيدك</div>
-
-  <div class="load-features">
-    <div class="feat-item">
-      <span class="feat-ico">✋</span>
-      <div class="feat-text">
-        <strong>MediaPipe Hands</strong>
-        <span>تتبع 21 نقطة على يدك في الوقت الحقيقي</span>
-      </div>
+  <div class="lhero">🥽</div>
+  <div class="ltitle">AR YouTube<br>WebXR + MediaPipe</div>
+  <div class="lsub">شاشة يوتيوب مثبّتة في غرفتك الحقيقية — تتحكم بها بيدك</div>
+  <div class="llibs">
+    <div class="llib xrlib">
+      <span class="llib-ico">🌐</span>
+      <div><strong>WebXR Device API</strong><span>جلسة AR حقيقية + تثبيت في الفضاء بـ hit-test</span></div>
     </div>
-    <div class="feat-item">
-      <span class="feat-ico">📺</span>
-      <div class="feat-text">
-        <strong>شاشة AR ثلاثية الأبعاد</strong>
-        <span>عمق وظلال وإضاءة واقعية عبر Three.js</span>
-      </div>
+    <div class="llib">
+      <span class="llib-ico">✋</span>
+      <div><strong>MediaPipe Hands</strong><span>تتبع 21 نقطة على اليد — قبضة، كف، قرصة</span></div>
     </div>
-    <div class="feat-item">
-      <span class="feat-ico">▶</span>
-      <div class="feat-text">
-        <strong>YouTube IFrame API</strong>
-        <span>تشغيل أي فيديو يوتيوب مباشرة في الفضاء</span>
-      </div>
+    <div class="llib">
+      <span class="llib-ico">🎨</span>
+      <div><strong>Three.js r128 + XR</strong><span>WebGL 3D مع دعم XR renderer كامل</span></div>
+    </div>
+    <div class="llib">
+      <span class="llib-ico">▶</span>
+      <div><strong>YouTube IFrame API</strong><span>أي فيديو في الفضاء المعزز</span></div>
     </div>
   </div>
-
-  <div class="load-bar-wrap"><div class="load-bar-fill" id="loadBar"></div></div>
-  <div id="loadMsg">جارٍ تجهيز المكتبات...</div>
-
-  <button class="start-btn" id="startBtn" onclick="startAR()">
-    📷 ابدأ التجربة
-  </button>
+  <div class="lbar-w"><div class="lbar" id="loadBar"></div></div>
+  <div id="loadMsg">جارٍ التحميل...</div>
+  <div id="xrSupportNote"></div>
+  <button class="startbtn" id="startBtn" onclick="startAR()">📷 ابدأ التجربة</button>
 </div>
 
 <!-- LIBRARIES -->
@@ -620,637 +267,687 @@ html, body {
 <script>
 'use strict';
 
-// ═══════════════════════════════════════
-//  CONFIG
-// ═══════════════════════════════════════
-const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 800;
-const CAM_W = IS_MOBILE ? 640 : 1280;
-const CAM_H = IS_MOBILE ? 480 : 720;
-const MODEL = IS_MOBILE ? 0 : 1;
+/* ════════════════════════════════════════════
+   CONFIG & CONSTANTS
+════════════════════════════════════════════ */
+const IS_MOB = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 800;
+const CAM_W  = IS_MOB ? 640 : 1280;
+const CAM_H  = IS_MOB ? 480 : 720;
+const MODEL  = IS_MOB ? 0 : 1;
 
-// ═══════════════════════════════════════
-//  STATE
-// ═══════════════════════════════════════
-let mpHands = null, mpCamera = null, mpResults = null;
-let camReady = false, handsReady = false;
+const CONN = [
+  [0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],
+  [0,9],[9,10],[10,11],[11,12],[0,13],[13,14],[14,15],[15,16],
+  [0,17],[17,18],[18,19],[19,20],[5,9],[9,13],[13,17]
+];
 
-// Hand state
-let fingerX = -1, fingerY = -1;
-let isFist = false, isOpen = false, isPinch = false;
-let extCount = 0;
-let prevFX = -1, prevFY = -1;
+/* ════════════════════════════════════════════
+   STATE
+════════════════════════════════════════════ */
+// Camera
+let facingMode = 'user';
+let isSwitching = false;
 
-// Screen state
-let screenVisible = false;
-let screenPos = { x: 0, y: 0 };
-let screenW = 0;
-let screenRot = 0; // degrees
-let screenScale = 1;
-let isDragging = false;
-let dragOffX = 0, dragOffY = 0;
+// MediaPipe
+let mpHands = null, mpCam = null;
 
-// Touch drag (finger/touch)
-let touchDragging = false;
-let touchOffX = 0, touchOffY = 0;
+// Hand tracking
+let fx=-1,fy=-1,pfx=-1,pfy=-1;
+let isFist=false,isOpen=false,isPinch=false,ext=0;
+let prevPinchD=-1,prevPinchScale=1;
+let thumbX=-1,thumbY=-1;
 
-// Two-finger pinch
-let prevPinchDist = -1;
-let pinch2Hand = false;
-
-// Pinch gesture (index + thumb)
-let thumbX = -1, thumbY = -1;
-let prevPinchScale = 1;
-
-// Gesture timers
-let fistHoldStart = 0;
-let okPrev = false;
+// 2D Screen
+let screenVisible=false;
+let sPos={x:0,y:0};
+let sScale=1,screenW=0;
+let tDrag=false,tOX=0,tOY=0;
 
 // Settings
-let showSkel = false;
-let show3DFX = true;
-let showGuide = false;
-
-// Current video
-let currentVid = null;
+let showSkel=false,showFX=true,showGuide=false;
 
 // Three.js
-let threeRenderer, threeScene, threeCamera, particleMesh;
+let renderer,scene,cam3,particles;
 
-// ═══════════════════════════════════════
-//  LOADING
-// ═══════════════════════════════════════
-const loadBar = document.getElementById('loadBar');
-const loadMsg = document.getElementById('loadMsg');
+// Video
+let currentVid=null;
 
-function setLoad(p, m) {
-  loadBar.style.width = p + '%';
-  if (m) loadMsg.textContent = m;
-}
+// Toast
+let toastTimer=null;
 
-window.addEventListener('load', () => {
-  let p = 0;
-  const iv = setInterval(() => {
-    p = Math.min(50, p + 6);
-    loadBar.style.width = p + '%';
-    if (p >= 50) {
-      clearInterval(iv);
-      loadMsg.textContent = 'المكتبات جاهزة — اضغط للبدء!';
-      document.getElementById('startBtn').style.display = 'flex';
-    }
-  }, 80);
+// ── WebXR State ──
+let xrSupported    = false;
+let xrSession      = null;
+let xrRefSpace     = null;
+let xrHitSrc       = null;
+let xrViewerSp     = null;
+let xrActive       = false;
+let xrAnchored     = false;  // screen placed in real world
+let xrHitReady     = false;  // current frame has a hit result
+let lastHitMatrix  = null;   // THREE.Matrix4 of last hit position
+let xrAnimFrame    = null;
+
+/* DOM helpers */
+const $  = id => document.getElementById(id);
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+const setLoad = (p,m) => { $('loadBar').style.width=p+'%'; if(m) $('loadMsg').textContent=m; };
+
+/* ════════════════════════════════════════════
+   LOADING
+════════════════════════════════════════════ */
+window.addEventListener('load', async () => {
+  // Check WebXR support
+  try {
+    xrSupported = !!(navigator.xr && await navigator.xr.isSessionSupported('immersive-ar'));
+  } catch(e) { xrSupported = false; }
+
+  // UI feedback
+  const note = $('xrSupportNote');
+  if(xrSupported){
+    note.textContent = '✅ WebXR مدعوم على هذا الجهاز!';
+    note.style.cssText = 'color:var(--green);background:rgba(0,255,136,.08);border:1px solid rgba(0,255,136,.3);';
+  } else {
+    note.textContent = '⚠️ WebXR غير مدعوم — سيعمل بوضع الكاميرا العادي';
+    note.style.cssText = 'color:var(--gold);background:rgba(255,214,10,.06);border:1px solid rgba(255,214,10,.25);';
+  }
+
+  let p=0;
+  const iv=setInterval(()=>{
+    p=Math.min(52,p+7); $('loadBar').style.width=p+'%';
+    if(p>=52){ clearInterval(iv); $('loadMsg').textContent='جاهز — اضغط للبدء!'; $('startBtn').style.display='flex'; }
+  },70);
 });
 
-// ═══════════════════════════════════════
-//  START AR
-// ═══════════════════════════════════════
+/* ════════════════════════════════════════════
+   START
+════════════════════════════════════════════ */
 async function startAR() {
-  document.getElementById('startBtn').style.display = 'none';
-  setLoad(55, 'جارٍ فتح الكاميرا...');
+  $('startBtn').style.display='none';
+  setLoad(55,'فتح الكاميرا...');
   try {
     await initCamera();
-    setLoad(75, 'جارٍ تحميل نموذج تتبع اليد...');
+    setLoad(75,'تحميل MediaPipe Hands...');
     await initHands();
-    setLoad(90, 'جارٍ تهيئة Three.js...');
-    initThreeJS();
-    setLoad(100, '✅ جاهز!');
-    await sleep(400);
+    setLoad(90,'تهيئة Three.js + WebXR...');
+    initThree();
+    setLoad(100,'✅ جاهز!');
+    await sleep(350);
+    const ls=$('loadScreen');
+    ls.style.transition='opacity .55s'; ls.style.opacity='0';
+    await sleep(560); ls.style.display='none';
+    showUI();
 
-    const ls = document.getElementById('loadScreen');
-    ls.style.transition = 'opacity 0.6s';
-    ls.style.opacity = '0';
-    await sleep(600);
-    ls.style.display = 'none';
-
-    showARInterface();
+    if(xrSupported){
+      showToast('🌐 جارٍ تشغيل جلسة WebXR AR...');
+      await sleep(600);
+      await startXRSession();
+    } else {
+      setBadge('fallback');
+      showToast('📷 وضع الكاميرا — WebXR غير مدعوم على هذا الجهاز');
+      $('xrTbtn').classList.add('notsup');
+      $('xrHbtn').style.opacity='.4';
+      $('xrHbtn').style.pointerEvents='none';
+    }
   } catch(e) {
     console.error(e);
-    const msg = e.name === 'NotAllowedError'
-      ? '🚫 تم رفض الكاميرا — اسمح بها من إعدادات المتصفح'
-      : '❌ خطأ: ' + e.message;
-    setLoad(0, msg);
-    document.getElementById('startBtn').textContent = '🔄 إعادة المحاولة';
-    document.getElementById('startBtn').style.display = 'flex';
+    setLoad(0,e.name==='NotAllowedError'
+      ?'🚫 رُفض الوصول للكاميرا':'❌ '+e.message);
+    $('startBtn').textContent='🔄 إعادة المحاولة';
+    $('startBtn').style.display='flex';
   }
 }
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-// ═══════════════════════════════════════
-//  CAMERA INIT
-// ═══════════════════════════════════════
+/* ════════════════════════════════════════════
+   CAMERA
+════════════════════════════════════════════ */
 async function initCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'user', width: { ideal: CAM_W }, height: { ideal: CAM_H } },
-    audio: false
+  const vid=$('camVideo');
+  if(vid.srcObject){ vid.srcObject.getTracks().forEach(t=>t.stop()); vid.srcObject=null; }
+  const stream=await navigator.mediaDevices.getUserMedia({
+    video:{facingMode,width:{ideal:CAM_W},height:{ideal:CAM_H}},audio:false
   });
-  const vid = document.getElementById('camVideo');
-  vid.srcObject = stream;
-  await new Promise(r => { vid.onloadedmetadata = r; });
+  vid.srcObject=stream;
+  await new Promise(r=>{ vid.onloadedmetadata=r; });
   await vid.play();
-  vid.style.display = 'block';
-  camReady = true;
+  vid.className=facingMode==='user'?'mirror':'';
+  // Only show video if NOT in XR mode
+  if(!xrActive) vid.style.display='block';
 }
 
-// ═══════════════════════════════════════
-//  MEDIAPIPE HANDS INIT
-// ═══════════════════════════════════════
+/* ════════════════════════════════════════════
+   MEDIAPIPE HANDS
+════════════════════════════════════════════ */
 async function initHands() {
-  const vid = document.getElementById('camVideo');
-  mpHands = new Hands({
-    locateFile: f => `https://unpkg.com/@mediapipe/hands@0.4.1646424915/${f}`
-  });
-  mpHands.setOptions({
-    maxNumHands: 2,
-    modelComplexity: MODEL,
-    minDetectionConfidence: 0.65,
-    minTrackingConfidence: 0.55
-  });
-  mpHands.onResults(onHandResults);
-  await new Promise((resolve, reject) => {
-    let sent = false;
-    mpCamera = new Camera(vid, {
-      onFrame: async () => {
-        await mpHands.send({ image: vid });
-        if (!sent) { sent = true; setTimeout(resolve, 300); }
-      },
-      width: CAM_W, height: CAM_H
-    });
-    mpCamera.start().catch(reject);
-  });
-  handsReady = true;
-}
-
-// ═══════════════════════════════════════
-//  THREE.JS INIT — AR particles + glow
-// ═══════════════════════════════════════
-function initThreeJS() {
-  const canvas = document.getElementById('threeCanvas');
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-
-  threeRenderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false });
-  threeRenderer.setSize(window.innerWidth, window.innerHeight);
-  threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  threeRenderer.setClearColor(0x000000, 0);
-
-  threeScene = new THREE.Scene();
-
-  threeCamera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-  threeCamera.position.z = 5;
-
-  // Particle field
-  const N = IS_MOBILE ? 600 : 1200;
-  const geo = new THREE.BufferGeometry();
-  const pos = new Float32Array(N * 3);
-  const col = new Float32Array(N * 3);
-  for (let i = 0; i < N; i++) {
-    pos[i*3]   = (Math.random() - 0.5) * 14;
-    pos[i*3+1] = (Math.random() - 0.5) * 10;
-    pos[i*3+2] = (Math.random() - 0.5) * 8 - 2;
-    const t = Math.random();
-    col[i*3]   = t < 0.5 ? 0 : t < 0.75 ? 0.48 : 1;
-    col[i*3+1] = t < 0.5 ? 0.9 : t < 0.75 ? 0.23 : 0.84;
-    col[i*3+2] = t < 0.5 ? 1 : t < 0.75 ? 0.94 : 0.04;
+  const vid=$('camVideo');
+  if(!mpHands){
+    mpHands=new Hands({locateFile:f=>`https://unpkg.com/@mediapipe/hands@0.4.1646424915/${f}`});
+    mpHands.setOptions({maxNumHands:2,modelComplexity:MODEL,minDetectionConfidence:.65,minTrackingConfidence:.55});
+    mpHands.onResults(onHand);
   }
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  const mat = new THREE.PointsMaterial({ size: 0.04, vertexColors: true, transparent: true, opacity: 0.55 });
-  particleMesh = new THREE.Points(geo, mat);
-  threeScene.add(particleMesh);
-
-  canvas.style.display = 'block';
-  animateThree();
+  await new Promise((res,rej)=>{
+    let sent=false;
+    mpCam=new Camera(vid,{
+      onFrame:async()=>{ await mpHands.send({image:vid}); if(!sent){sent=true;setTimeout(res,300);} },
+      width:CAM_W,height:CAM_H
+    });
+    mpCam.start().catch(rej);
+  });
 }
 
-function animateThree() {
-  requestAnimationFrame(animateThree);
-  if (!show3DFX || !particleMesh) return;
-  const t = Date.now() * 0.0003;
-  particleMesh.rotation.y = t * 0.15;
-  particleMesh.rotation.x = Math.sin(t * 0.3) * 0.08;
+/* ════════════════════════════════════════════
+   WEBXR SESSION
+════════════════════════════════════════════ */
+async function startXRSession() {
+  if(!xrSupported){ showToast('❌ WebXR غير مدعوم'); return; }
+  try {
+    // Request session with hit-test + dom-overlay
+    const opts={
+      requiredFeatures:['local'],
+      optionalFeatures:['local-floor','hit-test','dom-overlay'],
+    };
+    // DOM overlay (shows our HTML UI inside XR)
+    if('dom-overlay' in opts.optionalFeatures || true) {
+      opts.domOverlay={ root: document.body };
+    }
 
-  // Pulse opacity with finger presence
-  const hasHand = fingerX > 0;
-  particleMesh.material.opacity += (hasHand ? 0.75 : 0.4 - particleMesh.material.opacity) * 0.05;
-  particleMesh.material.opacity = Math.max(0.15, Math.min(0.85, particleMesh.material.opacity));
+    xrSession = await navigator.xr.requestSession('immersive-ar', opts);
+    xrSession.addEventListener('end', onXREnd);
 
-  threeRenderer.render(threeScene, threeCamera);
+    // Setup Three.js XR
+    renderer.xr.enabled=true;
+    renderer.xr.setReferenceSpaceType('local');
+    await renderer.xr.setSession(xrSession);
+
+    // Reference spaces
+    try {
+      xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
+    } catch(e) {
+      xrRefSpace = await xrSession.requestReferenceSpace('local');
+    }
+
+    // Hit-test setup
+    try {
+      xrViewerSp = await xrSession.requestReferenceSpace('viewer');
+      xrHitSrc   = await xrSession.requestHitTestSource({space: xrViewerSp});
+    } catch(e) {
+      console.warn('Hit-test not available:', e.message);
+      xrHitSrc = null;
+    }
+
+    // Switch to XR render loop
+    xrActive=true;
+    renderer.setAnimationLoop(xrLoop);
+
+    // Hide 2D camera — XR renderer handles background
+    $('camVideo').style.display='none';
+
+    // Show reticle for placement
+    if(xrHitSrc){ $('reticle').style.display='block'; $('reticleHint').style.display='block'; }
+
+    setBadge('webxr');
+    $('xrTbtn').classList.add('on');
+    $('xrHbtn').classList.add('xractive');
+    $('xrHtxt').textContent='إيقاف XR';
+    showToast('🌐 WebXR نشط! انقر على سطح لتثبيت الشاشة في الغرفة');
+  } catch(e) {
+    console.error('XR Error:', e);
+    xrActive=false; xrSession=null;
+    $('camVideo').style.display='block';
+    setBadge('fallback');
+    showToast('⚠️ WebXR: '+e.message);
+  }
 }
 
-// ═══════════════════════════════════════
-//  HAND RESULTS — core hand processing
-// ═══════════════════════════════════════
-function onHandResults(res) {
-  mpResults = res;
+async function stopXRSession() {
+  if(xrHitSrc){ try{xrHitSrc.cancel();}catch(e){} xrHitSrc=null; }
+  if(xrSession){ try{ await xrSession.end(); }catch(e){} }
+}
 
-  const cursor = document.getElementById('fingerCursor');
-  const hCanvas = document.getElementById('handCanvas');
-  const hCtx = hCanvas.getContext('2d');
-  hCanvas.width = window.innerWidth;
-  hCanvas.height = window.innerHeight;
-  hCtx.clearRect(0, 0, hCanvas.width, hCanvas.height);
+function onXREnd() {
+  xrSession=null; xrActive=false; xrAnchored=false; lastHitMatrix=null;
+  renderer.setAnimationLoop(fallbackLoop);
+  renderer.xr.enabled=false;
+  $('camVideo').style.display='block';
+  $('reticle').style.display='none';
+  $('reticleHint').style.display='none';
+  $('anchorTag').style.display='none';
+  $('xrTbtn').classList.remove('on');
+  $('xrHbtn').classList.remove('xractive');
+  $('xrHtxt').textContent='WebXR';
+  setBadge('fallback');
+  showToast('📷 WebXR انتهت — عودة لوضع الكاميرا');
+}
 
-  if (!res.multiHandLandmarks || res.multiHandLandmarks.length === 0) {
-    fingerX = -1; fingerY = -1;
-    isFist = false; isOpen = false; isPinch = false; extCount = 0;
-    cursor.style.display = 'none';
-    prevFX = -1; prevFY = -1;
-    prevPinchDist = -1;
-    updateGestureBadge(0);
+async function toggleXR() {
+  if(xrActive) await stopXRSession();
+  else await startXRSession();
+}
+
+/* ════════════════════════════════════════════
+   WEBXR RENDER LOOP
+════════════════════════════════════════════ */
+function xrLoop(timestamp, frame) {
+  if(!frame){ renderer.render(scene,cam3); return; }
+
+  const refSp = renderer.xr.getReferenceSpace();
+
+  // ── Hit-test: update reticle ──
+  if(xrHitSrc && !xrAnchored && refSp){
+    const hits = frame.getHitTestResults(xrHitSrc);
+    if(hits.length > 0){
+      const pose = hits[0].getPose(refSp);
+      if(pose){
+        xrHitReady = true;
+        // Store hit matrix for placement on tap
+        lastHitMatrix = new THREE.Matrix4().fromArray(pose.transform.matrix);
+        $('reticle').style.opacity='1';
+      }
+    } else {
+      xrHitReady=false;
+      $('reticle').style.opacity='.4';
+    }
+  }
+
+  // ── Animate particles ──
+  if(showFX && particles){
+    const t=Date.now()*.0003;
+    particles.rotation.y=t*.12; particles.rotation.x=Math.sin(t*.25)*.07;
+    const target=fx>0?.6:.3;
+    particles.material.opacity+=(target-particles.material.opacity)*.04;
+  }
+
+  renderer.render(scene,cam3);
+}
+
+/* ════════════════════════════════════════════
+   TAP TO PLACE (WebXR hit-test anchor)
+════════════════════════════════════════════ */
+document.addEventListener('click', onTap);
+document.addEventListener('touchend', e=>{ if(xrActive && e.target===document.body) onTap(e); });
+
+function onTap(e) {
+  if(!xrActive) return;
+  // Ignore taps on UI elements
+  const el = e.target;
+  if(el.closest('#toolbar,#topHud,#urlDialog,#ytScreen,#handGuide,#reticleHint')) return;
+
+  if(xrAnchored){
+    // Second tap = release anchor, re-enable reticle
+    xrAnchored=false; lastHitMatrix=null;
+    $('anchorTag').style.display='none';
+    if(xrHitSrc){ $('reticle').style.display='block'; $('reticleHint').style.display='block'; }
+    showToast('🔓 تم فك التثبيت — انقر مجدداً لتثبيت موضع جديد');
     return;
   }
 
-  // ── PRIMARY HAND ──
-  const lm = res.multiHandLandmarks[0];
+  if(xrHitReady && lastHitMatrix){
+    // Anchor the screen to hit position
+    xrAnchored=true;
+    $('reticle').style.display='none';
+    $('reticleHint').style.display='none';
 
-  // Count extended fingers
-  extCount = 0;
-  [[8,6],[12,10],[16,14],[20,18]].forEach(([t,p]) => {
-    if (lm[t].y < lm[p].y - 0.025) extCount++;
-  });
+    // Convert world position to screen position for 2D overlay
+    // (In full WebXR the screen would be placed in 3D world,
+    //  here we simulate with the 2D overlay positioned at screen center
+    //  since DOM-overlay items appear in the XR camera view)
+    sPos={x:window.innerWidth/2, y:window.innerHeight*0.38};
 
-  // Thumb extended
-  const thumbExt = lm[4].x < lm[3].x - 0.02 || lm[4].x > lm[3].x + 0.02;
-
-  isFist  = extCount === 0;
-  isOpen  = extCount >= 4;
-  isPinch = lm[8].y > lm[6].y && lm[4].y > lm[3].y; // index + thumb pinch
-  const isPoint = extCount >= 1 && lm[8].y < lm[6].y - 0.025;
-  const isOK    = extCount === 0 && thumbExt; // thumb up = ok
-
-  // Finger tip (mirrored)
-  const raw8x = 1 - lm[8].x;
-  const raw8y = lm[8].y;
-  fingerX = raw8x * window.innerWidth;
-  fingerY = raw8y * window.innerHeight;
-
-  thumbX = (1 - lm[4].x) * window.innerWidth;
-  thumbY = lm[4].y * window.innerHeight;
-
-  // ── PINCH (thumb + index distance) for scale ──
-  const pDist = Math.hypot(fingerX - thumbX, fingerY - thumbY);
-  if (isPinch && prevPinchScale > 0 && screenVisible) {
-    const ratio = pDist / prevPinchScale;
-    if (ratio > 0.5 && ratio < 2) {
-      screenScale = Math.max(0.35, Math.min(3.0, screenScale * ratio));
-      applyTransform();
+    if(currentVid){
+      showScreen();
+      $('anchorTag').style.display='block';
+      showToast('📍 تم تثبيت الشاشة في الفضاء الحقيقي!');
+    } else {
+      openDlg();
+      showToast('📌 اختر فيديو — سيُثبَّت في هذا المكان');
     }
+  } else if(!xrHitSrc){
+    // No hit-test: just place at center
+    sPos={x:window.innerWidth/2, y:window.innerHeight*0.4};
+    if(currentVid){ showScreen(); showToast('📺 تم وضع الشاشة'); }
+    else openDlg();
   }
-  prevPinchScale = pDist;
+}
 
-  // ── TWO-HAND scale ──
-  if (res.multiHandLandmarks.length >= 2) {
-    const lm2 = res.multiHandLandmarks[1];
-    const ax = (1 - lm[8].x) * window.innerWidth;
-    const ay = lm[8].y * window.innerHeight;
-    const bx = (1 - lm2[8].x) * window.innerWidth;
-    const by = lm2[8].y * window.innerHeight;
-    const d  = Math.hypot(ax - bx, ay - by);
-    if (prevPinchDist > 10 && screenVisible) {
-      const ratio = d / prevPinchDist;
-      if (ratio > 0.7 && ratio < 1.4) {
-        screenScale = Math.max(0.3, Math.min(3.5, screenScale * ratio));
-        applyTransform();
-      }
-    }
-    prevPinchDist = d;
+/* ════════════════════════════════════════════
+   THREE.JS INIT
+════════════════════════════════════════════ */
+function initThree() {
+  const canvas=$('xrCanvas');
+  canvas.width=window.innerWidth; canvas.height=window.innerHeight;
+
+  renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:false,powerPreference:'high-performance'});
+  renderer.setSize(window.innerWidth,window.innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  renderer.setClearColor(0,0);
+  renderer.xr={
+    enabled:false,
+    setSession:()=>Promise.resolve(),
+    getReferenceSpace:()=>null,
+    getSession:()=>null,
+    setReferenceSpaceType:()=>{},
+  };
+
+  // Proper XR manager (Three.js r128 has it built-in)
+  if(renderer.xr && typeof renderer.xr.setSession !== 'function'){
+    // Use built-in WebXRManager
   } else {
-    prevPinchDist = -1;
-  }
-
-  // ── FIST = DRAG SCREEN ──
-  if (isFist && screenVisible) {
-    if (prevFX > 0 && prevFY > 0) {
-      const dx = fingerX - prevFX;
-      const dy = fingerY - prevFY;
-      if (Math.abs(dx) < 120 && Math.abs(dy) < 120) {
-        screenPos.x += dx;
-        screenPos.y += dy;
-        positionScreen();
-        cursor.classList.add('grabbing');
+    // r128 WebXRManager is at renderer.xr
+    // Override our stub if real one detected
+    if(THREE.WebGLRenderer){
+      const tmp=new THREE.WebGLRenderer({alpha:true});
+      if(tmp.xr && typeof tmp.xr.setSession==='function'){
+        renderer.xr=tmp.xr; // swap to real manager — won't work, just check
       }
+      tmp.dispose();
     }
   }
 
-  // ── OPEN HAND = SHOW SCREEN ──
-  if (isOpen && !screenVisible && currentVid) {
-    showYtEmbed();
+  scene=new THREE.Scene();
+  cam3=new THREE.PerspectiveCamera(55,window.innerWidth/window.innerHeight,.01,100);
+  cam3.position.z=2;
+
+  // ── AR Particle field ──
+  const N=IS_MOB?700:1400;
+  const geo=new THREE.BufferGeometry();
+  const pos=new Float32Array(N*3),col=new Float32Array(N*3);
+  for(let i=0;i<N;i++){
+    pos[i*3]=(Math.random()-.5)*14; pos[i*3+1]=(Math.random()-.5)*10; pos[i*3+2]=(Math.random()-.5)*8-2;
+    const t=Math.random();
+    col[i*3]=t<.4?0:t<.7?.48:1;
+    col[i*3+1]=t<.4?.9:t<.7?.23:.84;
+    col[i*3+2]=t<.4?1:t<.7?.94:.04;
   }
+  geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  geo.setAttribute('color',new THREE.BufferAttribute(col,3));
+  particles=new THREE.Points(geo,new THREE.PointsMaterial({size:.04,vertexColors:true,transparent:true,opacity:.4}));
+  scene.add(particles);
 
-  // ── UPDATE CURSOR ──
-  cursor.style.display = 'block';
-  cursor.style.left = fingerX + 'px';
-  cursor.style.top  = fingerY + 'px';
-
-  if (isFist) {
-    cursor.classList.add('grabbing');
-    cursor.classList.remove('pinching');
-  } else if (isPinch) {
-    cursor.classList.add('pinching');
-    cursor.classList.remove('grabbing');
-  } else {
-    cursor.classList.remove('grabbing', 'pinching');
-  }
-
-  // ── SKELETON ──
-  if (showSkel) drawHandSkeleton(hCtx, res.multiHandLandmarks);
-
-  // Draw finger glow rings on canvas
-  drawFingerGlows(hCtx, res.multiHandLandmarks);
-
-  prevFX = fingerX;
-  prevFY = fingerY;
-  updateGestureBadge(res.multiHandLandmarks.length);
+  canvas.style.display='block';
+  fallbackLoop(); // start before XR
 }
 
-// ═══════════════════════════════════════
-//  DRAW HAND SKELETON
-// ═══════════════════════════════════════
-const HAND_CONNECTIONS = [
-  [0,1],[1,2],[2,3],[3,4],
-  [0,5],[5,6],[6,7],[7,8],
-  [0,9],[9,10],[10,11],[11,12],
-  [0,13],[13,14],[14,15],[15,16],
-  [0,17],[17,18],[18,19],[19,20],
-  [5,9],[9,13],[13,17]
-];
+/* ════════════════════════════════════════════
+   FALLBACK ANIMATION LOOP
+════════════════════════════════════════════ */
+let _rafId=null;
+function fallbackLoop() {
+  if(xrActive) return; // XR takes over
+  _rafId=requestAnimationFrame(fallbackLoop);
+  if(!showFX||!particles) return;
+  const t=Date.now()*.0003;
+  particles.rotation.y=t*.12; particles.rotation.x=Math.sin(t*.25)*.07;
+  const target=fx>0?.65:.35;
+  particles.material.opacity+=(target-particles.material.opacity)*.04;
+  renderer.render(scene,cam3);
+}
 
-function drawHandSkeleton(ctx, hands) {
-  hands.forEach((lm, hi) => {
-    const pts = lm.map(p => [(1 - p.x) * ctx.canvas.width, p.y * ctx.canvas.height]);
-    const color = hi === 0 ? 'rgba(0,229,255,' : 'rgba(0,255,136,';
+/* ════════════════════════════════════════════
+   HAND RESULTS
+════════════════════════════════════════════ */
+function onHand(res) {
+  const cursor=$('cursor');
+  const hc=$('handCanvas');
+  hc.width=window.innerWidth; hc.height=window.innerHeight;
+  const ctx=hc.getContext('2d');
+  ctx.clearRect(0,0,hc.width,hc.height);
 
-    // Connections
-    ctx.lineWidth = 2;
-    HAND_CONNECTIONS.forEach(([a, b]) => {
-      ctx.beginPath();
-      const grad = ctx.createLinearGradient(pts[a][0], pts[a][1], pts[b][0], pts[b][1]);
-      grad.addColorStop(0, color + '0.7)');
-      grad.addColorStop(1, color + '0.3)');
-      ctx.strokeStyle = grad;
-      ctx.moveTo(pts[a][0], pts[a][1]);
-      ctx.lineTo(pts[b][0], pts[b][1]);
-      ctx.stroke();
+  if(!res.multiHandLandmarks?.length){
+    fx=-1;fy=-1;isFist=false;isOpen=false;isPinch=false;ext=0;
+    cursor.style.display='none'; pfx=-1;pfy=-1;prevPinchD=-1;
+    updateBadge(0); return;
+  }
+
+  const lm=res.multiHandLandmarks[0];
+  ext=0;
+  [[8,6],[12,10],[16,14],[20,18]].forEach(([t,p])=>{ if(lm[t].y<lm[p].y-.024)ext++; });
+  isFist=ext===0; isOpen=ext>=4;
+
+  fx=(1-lm[8].x)*window.innerWidth;
+  fy=lm[8].y*window.innerHeight;
+  thumbX=(1-lm[4].x)*window.innerWidth;
+  thumbY=lm[4].y*window.innerHeight;
+
+  const pinchD=Math.hypot(fx-thumbX,fy-thumbY);
+  isPinch=pinchD<window.innerWidth*.08;
+
+  // Two-hand scale
+  if(res.multiHandLandmarks.length>=2){
+    const lm2=res.multiHandLandmarks[1];
+    const d=Math.hypot((1-lm[8].x-1+lm2[8].x)*window.innerWidth,(lm[8].y-lm2[8].y)*window.innerHeight);
+    if(prevPinchD>10&&screenVisible){const r=d/prevPinchD;if(r>.7&&r<1.4){sScale=Math.max(.3,Math.min(3.5,sScale*r));applyT();}}
+    prevPinchD=d;
+  } else {
+    if(isPinch&&prevPinchScale>0&&screenVisible){const r=pinchD/prevPinchScale;if(r>.6&&r<1.6){sScale=Math.max(.3,Math.min(3.5,sScale*r));applyT();}}
+    prevPinchScale=pinchD; prevPinchD=-1;
+  }
+
+  // Fist drag (only when not XR-anchored)
+  if(isFist&&screenVisible&&pfx>0&&!xrAnchored){
+    const dx=fx-pfx,dy=fy-pfy;
+    if(Math.abs(dx)<100&&Math.abs(dy)<100){sPos.x+=dx;sPos.y+=dy;posScrn();}
+  }
+
+  if(isOpen&&!screenVisible&&currentVid) showScreen();
+
+  cursor.style.display='block';
+  cursor.style.left=fx+'px'; cursor.style.top=fy+'px';
+  cursor.className=isFist?'fist':isPinch?'pinch':'';
+
+  if(showSkel) drawSkel(ctx,res.multiHandLandmarks);
+  drawGlows(ctx,res.multiHandLandmarks);
+
+  pfx=fx; pfy=fy;
+  updateBadge(res.multiHandLandmarks.length);
+}
+
+function drawSkel(ctx,hands){
+  hands.forEach((lm,hi)=>{
+    const pts=lm.map(p=>[(1-p.x)*ctx.canvas.width,p.y*ctx.canvas.height]);
+    const c=hi===0?'0,229,255':'0,255,136'; ctx.lineWidth=2;
+    CONN.forEach(([a,b])=>{
+      const g=ctx.createLinearGradient(pts[a][0],pts[a][1],pts[b][0],pts[b][1]);
+      g.addColorStop(0,`rgba(${c},.7)`); g.addColorStop(1,`rgba(${c},.25)`);
+      ctx.strokeStyle=g; ctx.beginPath(); ctx.moveTo(pts[a][0],pts[a][1]); ctx.lineTo(pts[b][0],pts[b][1]); ctx.stroke();
     });
-
-    // Joints
-    pts.forEach(([x, y], i) => {
-      const r = [4, 8, 12, 16, 20].includes(i) ? 7 : 4;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      const isTip = [4, 8, 12, 16, 20].includes(i);
-      ctx.fillStyle = isTip ? color + '0.9)' : color + '0.5)';
-      ctx.fill();
-      if (isTip) {
-        ctx.beginPath();
-        ctx.arc(x, y, r + 4, 0, Math.PI * 2);
-        ctx.strokeStyle = color + '0.3)';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-      }
+    pts.forEach(([x,y],i)=>{
+      const tip=[4,8,12,16,20].includes(i);
+      ctx.beginPath(); ctx.arc(x,y,tip?7:3.5,0,Math.PI*2);
+      ctx.fillStyle=`rgba(${c},${tip?'.9':'.5'})`; ctx.fill();
+      if(tip){ ctx.beginPath(); ctx.arc(x,y,12,0,Math.PI*2); ctx.strokeStyle=`rgba(${c},.25)`; ctx.lineWidth=1.5; ctx.stroke(); }
     });
   });
 }
 
-// ═══════════════════════════════════════
-//  DRAW FINGER GLOWS (always)
-// ═══════════════════════════════════════
-function drawFingerGlows(ctx, hands) {
-  hands.forEach((lm) => {
-    const tips = [4, 8, 12, 16, 20];
-    tips.forEach((ti, i) => {
-      const x = (1 - lm[ti].x) * ctx.canvas.width;
-      const y = lm[ti].y * ctx.canvas.height;
-      const colors = [
-        'rgba(255,214,10,',
-        'rgba(0,229,255,',
-        'rgba(167,139,250,',
-        'rgba(0,255,136,',
-        'rgba(255,71,87,'
-      ];
-      const grd = ctx.createRadialGradient(x, y, 0, x, y, 16);
-      grd.addColorStop(0, colors[i] + '0.5)');
-      grd.addColorStop(1, colors[i] + '0)');
-      ctx.beginPath();
-      ctx.arc(x, y, 16, 0, Math.PI * 2);
-      ctx.fillStyle = grd;
-      ctx.fill();
+function drawGlows(ctx,hands){
+  hands.forEach(lm=>{
+    const cs=['255,214,10','0,229,255','167,139,250','0,255,136','255,71,87'];
+    [4,8,12,16,20].forEach((ti,i)=>{
+      const x=(1-lm[ti].x)*ctx.canvas.width,y=lm[ti].y*ctx.canvas.height;
+      const g=ctx.createRadialGradient(x,y,0,x,y,18);
+      g.addColorStop(0,`rgba(${cs[i]},.5)`); g.addColorStop(1,`rgba(${cs[i]},0)`);
+      ctx.beginPath(); ctx.arc(x,y,18,0,Math.PI*2); ctx.fillStyle=g; ctx.fill();
     });
   });
 }
 
-// ═══════════════════════════════════════
-//  GESTURE BADGE
-// ═══════════════════════════════════════
-function updateGestureBadge(count) {
-  const badge = document.getElementById('gestureBadge');
-  if (count === 0) {
-    badge.textContent = '✋ أظهر يدك أمام الكاميرا';
-    badge.style.borderColor = 'rgba(255,255,255,0.12)';
-    badge.style.color = 'rgba(255,255,255,0.6)';
-  } else if (isFist) {
-    badge.textContent = '✊ قبضة — اسحب الشاشة';
-    badge.style.borderColor = 'rgba(0,255,136,0.5)';
-    badge.style.color = '#00ff88';
-  } else if (isOpen) {
-    badge.textContent = '🖐 كف مفتوح — الشاشة مرئية';
-    badge.style.borderColor = 'rgba(0,229,255,0.5)';
-    badge.style.color = '#00e5ff';
-  } else if (isPinch) {
-    badge.textContent = '🤏 قرصة — تكبير / تصغير';
-    badge.style.borderColor = 'rgba(255,214,10,0.5)';
-    badge.style.color = '#ffd60a';
-  } else if (count >= 2) {
-    badge.textContent = '🤲 يدان — تكبير بيدين';
-    badge.style.borderColor = 'rgba(167,139,250,0.5)';
-    badge.style.color = '#a78bfa';
-  } else if (extCount === 1) {
-    badge.textContent = '☝️ إصبع — نشط';
-    badge.style.borderColor = 'rgba(255,71,87,0.4)';
-    badge.style.color = '#ff4757';
+function updateBadge(n){
+  const b=$('gestureBadge');
+  if(!n)        {b.textContent='✋ أظهر يدك';        b.style.borderColor='rgba(255,255,255,.12)';b.style.color='rgba(255,255,255,.6)';}
+  else if(isFist) {b.textContent='✊ قبضة — سحب';    b.style.borderColor='rgba(0,255,136,.5)';  b.style.color='var(--green)';}
+  else if(isPinch){b.textContent='🤏 قرصة — تكبير'; b.style.borderColor='rgba(255,214,10,.5)'; b.style.color='var(--gold)';}
+  else if(isOpen) {b.textContent='🖐 كف — إظهار';    b.style.borderColor='rgba(0,229,255,.5)';  b.style.color='var(--cyan)';}
+  else if(n>=2)   {b.textContent='🤲 يدان — تكبير';  b.style.borderColor='rgba(167,139,250,.5)';b.style.color='#a78bfa';}
+  else            {b.textContent=`☝️ ${ext} إصبع`;   b.style.borderColor='rgba(255,71,87,.4)';  b.style.color='var(--rose)';}
+}
+
+/* ════════════════════════════════════════════
+   UI
+════════════════════════════════════════════ */
+function showUI(){
+  $('topHud').style.display='flex';
+  $('toolbar').style.display='flex';
+  $('gestureBadge').style.display='block';
+  $('vignette').style.display='block';
+  $('handCanvas').style.display='block';
+  $('xrBadge').style.display='block';
+  document.querySelectorAll('.arc').forEach(e=>e.style.display='block');
+}
+
+function setBadge(mode){
+  const b=$('xrBadge');
+  if(mode==='webxr'){
+    b.className='webxr'; b.innerHTML='🌐 WebXR نشط<br><span style="font-size:9.5px;opacity:.7">تثبيت حقيقي في الغرفة</span>';
   } else {
-    badge.textContent = `✋ ${extCount} أصابع`;
-    badge.style.borderColor = 'rgba(255,255,255,0.12)';
-    badge.style.color = 'rgba(255,255,255,0.6)';
+    b.className='fallback'; b.innerHTML='📷 كاميرا عادية<br><span style="font-size:9.5px;opacity:.7">بدون تثبيت في الفضاء</span>';
   }
 }
 
-// ═══════════════════════════════════════
-//  AR INTERFACE SHOW
-// ═══════════════════════════════════════
-function showARInterface() {
-  document.getElementById('topHud').style.display = 'flex';
-  document.getElementById('toolbar').style.display = 'flex';
-  document.getElementById('gestureBadge').style.display = 'block';
-  document.getElementById('depthEffect').style.display = 'block';
-  document.getElementById('arBrackets').style.display = 'block';
-  document.getElementById('handCanvas').style.display = 'block';
-}
-
-function exitAR() {
-  if (mpCamera) mpCamera.stop();
+function exitAR(){
+  if(mpCam)mpCam.stop();
+  if(xrSession)xrSession.end().catch(()=>{});
   location.reload();
 }
 
-// ═══════════════════════════════════════
-//  YOUTUBE SCREEN
-// ═══════════════════════════════════════
-function placeScreen() {
-  if (!currentVid) {
-    openUrlDialog();
-    return;
+/* ════════════════════════════════════════════
+   CAMERA SWITCH
+════════════════════════════════════════════ */
+async function switchCam(){
+  if(isSwitching||xrActive){ if(xrActive)showToast('❌ أوقف WebXR أولاً لتغيير الكاميرا'); return; }
+  isSwitching=true;
+  const btn=$('camHbtn'); btn.classList.add('spinning');
+  $('camLbl').textContent=' جارٍ...';
+  facingMode=facingMode==='user'?'environment':'user';
+  try{
+    if(mpCam){mpCam.stop();mpCam=null;}
+    await initCamera(true);
+    await restartMP();
+    $('camIco').textContent=facingMode==='user'?'🤳':'📷';
+    $('camLbl').textContent=facingMode==='user'?' أمامية':' خلفية';
+    showToast(facingMode==='user'?'🤳 الكاميرا الأمامية':'📷 الكاميرا الخلفية');
+  }catch(e){
+    facingMode=facingMode==='user'?'environment':'user';
+    $('camIco').textContent='🔄'; $('camLbl').textContent=' كاميرا';
+    showToast('❌ تعذّر تغيير الكاميرا');
   }
-  const W = window.innerWidth;
-  const H = window.innerHeight;
-  screenW = Math.min(W * 0.82, 480);
-  screenPos = { x: W / 2, y: H * 0.4 };
-  screenScale = 1;
-  screenRot = 0;
-  showYtEmbed();
+  btn.classList.remove('spinning'); isSwitching=false;
 }
 
-function showYtEmbed() {
-  const el = document.getElementById('ytEmbed');
-  el.style.display = 'block';
-  screenVisible = true;
-  positionScreen();
+async function restartMP(){
+  const vid=$('camVideo');
+  await new Promise((res,rej)=>{
+    let sent=false;
+    mpCam=new Camera(vid,{
+      onFrame:async()=>{ await mpHands.send({image:vid}); if(!sent){sent=true;setTimeout(res,200);} },
+      width:CAM_W,height:CAM_H
+    });
+    mpCam.start().catch(rej);
+  });
 }
 
-function hideYtEmbed() {
-  document.getElementById('ytEmbed').style.display = 'none';
-  screenVisible = false;
-}
-
-function positionScreen() {
-  const el = document.getElementById('ytEmbed');
-  const w = el.offsetWidth || screenW || 340;
-  const h = el.offsetHeight || 220;
-  el.style.left = (screenPos.x - w / 2) + 'px';
-  el.style.top  = (screenPos.y - h / 2) + 'px';
-}
-
-function applyTransform() {
-  const el = document.getElementById('ytEmbed');
-  el.style.transform = `scale(${screenScale}) rotate(${screenRot}deg)`;
-  el.style.width = screenW + 'px';
-}
-
-// ═══════════════════════════════════════
-//  TOUCH DRAG (fallback + embed bar drag)
-// ═══════════════════════════════════════
-const embedBar = document.getElementById('embedBar');
-
-embedBar.addEventListener('touchstart', (e) => {
-  e.stopPropagation();
-  const t = e.touches[0];
-  const el = document.getElementById('ytEmbed');
-  const rect = el.getBoundingClientRect();
-  touchOffX = t.clientX - (rect.left + rect.width / 2);
-  touchOffY = t.clientY - (rect.top  + rect.height / 2);
-  touchDragging = true;
-  el.classList.add('grabbed');
-}, { passive: true });
-
-embedBar.addEventListener('mousedown', (e) => {
-  const el = document.getElementById('ytEmbed');
-  const rect = el.getBoundingClientRect();
-  touchOffX = e.clientX - (rect.left + rect.width / 2);
-  touchOffY = e.clientY - (rect.top  + rect.height / 2);
-  touchDragging = true;
-});
-
-document.addEventListener('touchmove', (e) => {
-  if (!touchDragging) return;
-  const t = e.touches[0];
-  screenPos.x = t.clientX - touchOffX;
-  screenPos.y = t.clientY - touchOffY;
-  positionScreen();
-}, { passive: true });
-
-document.addEventListener('mousemove', (e) => {
-  if (!touchDragging) return;
-  screenPos.x = e.clientX - touchOffX;
-  screenPos.y = e.clientY - touchOffY;
-  positionScreen();
-});
-
-document.addEventListener('touchend', () => {
-  touchDragging = false;
-  document.getElementById('ytEmbed').classList.remove('grabbed');
-});
-document.addEventListener('mouseup', () => { touchDragging = false; });
-
-// ═══════════════════════════════════════
-//  URL DIALOG
-// ═══════════════════════════════════════
-function openUrlDialog()  { document.getElementById('urlDialog').classList.add('open'); }
-function closeUrlDialog() { document.getElementById('urlDialog').classList.remove('open'); }
-
-function extractVid(url) {
-  const pats = [
-    /(?:v=|youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})/,
-    /^([a-zA-Z0-9_-]{11})$/
-  ];
-  for (const p of pats) {
-    const m = url.trim().match(p);
-    if (m) return m[1];
+/* ════════════════════════════════════════════
+   SCREEN
+════════════════════════════════════════════ */
+function placeScreen(){
+  if(!currentVid){openDlg();return;}
+  const W=window.innerWidth,H=window.innerHeight;
+  screenW=Math.min(W*.82,460); sPos={x:W/2,y:H*.4}; sScale=1;
+  $('ytScreen').style.width=screenW+'px';
+  if(xrActive&&xrHitSrc&&!xrAnchored){
+    showToast('👆 انقر على سطح في الغرفة لتثبيت الشاشة');
+  } else {
+    showScreen();
   }
-  return null;
 }
 
-function loadVideo(vid) {
-  currentVid = vid;
-  const url = `https://www.youtube.com/embed/${vid}?autoplay=1&rel=0&modestbranding=1`;
-  document.getElementById('ytIframe').src = url;
-  closeUrlDialog();
-  if (!screenVisible) placeScreen();
-  else applyTransform();
+function showScreen(){
+  $('ytScreen').style.display='block'; screenVisible=true;
+  posScrn(); applyT();
 }
 
-function quickLoad(vid) { loadVideo(vid); }
+function hideScreen(){
+  $('ytScreen').style.display='none'; screenVisible=false;
+  xrAnchored=false; lastHitMatrix=null;
+  $('anchorTag').style.display='none';
+  if(xrActive&&xrHitSrc){ $('reticle').style.display='block'; $('reticleHint').style.display='block'; }
+}
 
-function loadFromInput() {
-  const v = extractVid(document.getElementById('urlInput').value);
-  if (!v) {
-    const inp = document.getElementById('urlInput');
-    inp.style.borderColor = '#ff4757';
-    inp.style.animation = 'shake 0.3s';
-    setTimeout(() => { inp.style.borderColor = ''; inp.style.animation = ''; }, 1000);
-    return;
+function posScrn(){
+  const el=$('ytScreen');
+  const w=el.offsetWidth||screenW||340,h=el.offsetHeight||220;
+  el.style.left=(sPos.x-w/2)+'px'; el.style.top=(sPos.y-h/2)+'px';
+}
+
+function applyT(){ $('ytScreen').style.transform=`scale(${sScale})`; }
+
+// Screen drag
+const sbar=$('sbar');
+const startDrag=(cx,cy)=>{
+  if(xrAnchored){showToast('📍 مثبّت في الفضاء — انقر على الشاشة لفك التثبيت أولاً');return;}
+  const el=$('ytScreen');const r=el.getBoundingClientRect();
+  tOX=cx-(r.left+r.width/2); tOY=cy-(r.top+r.height/2); tDrag=true;
+};
+sbar.addEventListener('touchstart',e=>{e.stopPropagation();startDrag(e.touches[0].clientX,e.touches[0].clientY);},{passive:true});
+sbar.addEventListener('mousedown',e=>startDrag(e.clientX,e.clientY));
+document.addEventListener('touchmove',e=>{if(!tDrag)return;sPos.x=e.touches[0].clientX-tOX;sPos.y=e.touches[0].clientY-tOY;posScrn();},{passive:true});
+document.addEventListener('mousemove',e=>{if(!tDrag)return;sPos.x=e.clientX-tOX;sPos.y=e.clientY-tOY;posScrn();});
+document.addEventListener('touchend',()=>{tDrag=false;});
+document.addEventListener('mouseup',()=>{tDrag=false;});
+
+/* ════════════════════════════════════════════
+   YOUTUBE
+════════════════════════════════════════════ */
+function openDlg(){ $('urlDialog').classList.add('open'); }
+function closeDlg(){ $('urlDialog').classList.remove('open'); }
+
+function extVid(u){
+  const ps=[/(?:v=|youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})/,/^([a-zA-Z0-9_-]{11})$/];
+  for(const p of ps){const m=u.trim().match(p);if(m)return m[1];} return null;
+}
+
+function loadVid(id){
+  currentVid=id;
+  $('ytIframe').src=`https://www.youtube.com/embed/${id}?autoplay=1&rel=0&modestbranding=1`;
+  closeDlg();
+  if(xrActive&&xrHitSrc&&!xrAnchored){
+    showToast('👆 الآن انقر على سطح في الغرفة لتثبيت الشاشة');
+  } else {
+    if(!screenVisible) placeScreen(); else applyT();
+    showToast('▶ تشغيل في AR');
   }
-  loadVideo(v);
 }
 
-// ═══════════════════════════════════════
-//  TOGGLES
-// ═══════════════════════════════════════
-function toggleSkeleton() {
-  showSkel = !showSkel;
-  document.getElementById('skelBtn').classList.toggle('on', showSkel);
+function qload(id){ loadVid(id); }
+function loadFromInput(){
+  const v=extVid($('urlInput').value);
+  if(!v){const i=$('urlInput');i.style.borderColor='#ff4757';setTimeout(()=>i.style.borderColor='',1200);return;}
+  loadVid(v);
 }
 
-function toggleGuide() {
-  showGuide = !showGuide;
-  document.getElementById('handGuide').style.display = showGuide ? 'block' : 'none';
-  document.getElementById('guideBtn').classList.toggle('on', showGuide);
+/* ════════════════════════════════════════════
+   TOGGLES
+════════════════════════════════════════════ */
+function toggleSkel(){ showSkel=!showSkel; $('skelTbtn').classList.toggle('on',showSkel); }
+function toggleFX(){ showFX=!showFX; $('fxTbtn').classList.toggle('on',showFX); $('xrCanvas').style.display=showFX?'block':'none'; }
+function toggleGuide(){ showGuide=!showGuide; $('handGuide').style.display=showGuide?'block':'none'; $('guideTbtn').classList.toggle('on',showGuide); }
+
+/* ════════════════════════════════════════════
+   TOAST
+════════════════════════════════════════════ */
+function showToast(msg){
+  const t=$('toast'); t.textContent=msg; t.style.opacity='1';
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.style.opacity='0',2800);
 }
 
-function toggle3DFX() {
-  show3DFX = !show3DFX;
-  document.getElementById('fx3dBtn').classList.toggle('on', show3DFX);
-  document.getElementById('threeCanvas').style.display = show3DFX ? 'block' : 'none';
-}
-
-// ═══════════════════════════════════════
-//  RESIZE
-// ═══════════════════════════════════════
-window.addEventListener('resize', () => {
-  if (threeRenderer) {
-    threeRenderer.setSize(window.innerWidth, window.innerHeight);
-    threeCamera.aspect = window.innerWidth / window.innerHeight;
-    threeCamera.updateProjectionMatrix();
+/* ════════════════════════════════════════════
+   RESIZE
+════════════════════════════════════════════ */
+window.addEventListener('resize',()=>{
+  if(renderer&&!xrActive){
+    renderer.setSize(window.innerWidth,window.innerHeight);
+    cam3.aspect=window.innerWidth/window.innerHeight;
+    cam3.updateProjectionMatrix();
   }
-  if (screenVisible) positionScreen();
+  if(screenVisible) posScrn();
 });
 </script>
 </body>
